@@ -55,84 +55,13 @@ function Read-Choice {
 }
 
 function Get-BinaryFast {
-    param([string]$Url, [string]$OutFile, [string]$Name, [int]$Segments = 4)
+    param([string]$Url, [string]$OutFile, [string]$Name)
     
     Write-UI "Downloading $Name..." Run
     
-    $simpleDownload = {
+    try {
         $ProgressPreference = 'SilentlyContinue'
         Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 600
-    }
-
-    try {
-        $supportsRange = $true
-        $size = 0
-        try {
-            $req = [System.Net.HttpWebRequest]::Create($Url)
-            $req.Method = "HEAD"
-            $req.UserAgent = "Mozilla/5.0"
-            $req.AllowAutoRedirect = $true
-            $req.Timeout = 15000
-            $resp = $req.GetResponse()
-            $size = $resp.ContentLength
-            $supportsRange = $resp.Headers["Accept-Ranges"] -eq "bytes"
-            $resp.Close()
-        } catch {
-            $supportsRange = $false
-        }
-        
-        if (-not $supportsRange -or $size -le 1MB) {
-            & $simpleDownload
-            return $true
-        }
-        
-        $segSize = [Math]::Ceiling($size / $Segments)
-        $tempDir = Join-Path $Config.TempDir "dl_$(Get-Random)"
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        $segFiles = @()
-        
-        for ($i = 0; $i -lt $Segments; $i++) {
-            $start = $i * $segSize
-            $end = [Math]::Min(($i + 1) * $segSize - 1, $size - 1)
-            $segFile = Join-Path $tempDir "seg_$i"
-            $segFiles += $segFile
-            
-            Write-Host "`r[>] $Name segment $($i+1)/$Segments" -NoNewline
-            
-            try {
-                $dlReq = [System.Net.HttpWebRequest]::Create($Url)
-                $dlReq.Method = "GET"
-                $dlReq.UserAgent = "Mozilla/5.0"
-                $dlReq.AddRange($start, $end)
-                $dlReq.Timeout = 300000
-                $dlResp = $dlReq.GetResponse()
-                $stream = $dlResp.GetResponseStream()
-                $fs = [System.IO.File]::Create($segFile)
-                $buf = New-Object byte[] 65536
-                while (($rd = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
-                    $fs.Write($buf, 0, $rd)
-                }
-                $fs.Close(); $stream.Close(); $dlResp.Close()
-            } catch {
-                Remove-Item $tempDir -Recurse -Force -EA SilentlyContinue
-                & $simpleDownload
-                return $true
-            }
-        }
-        Write-Host ""
-        
-        $outStream = [System.IO.File]::Create($OutFile)
-        $buf = New-Object byte[] 1048576
-        foreach ($sf in $segFiles) {
-            $inStream = [System.IO.File]::OpenRead($sf)
-            while (($rd = $inStream.Read($buf, 0, $buf.Length)) -gt 0) {
-                $outStream.Write($buf, 0, $rd)
-            }
-            $inStream.Close()
-        }
-        $outStream.Close()
-        Remove-Item $tempDir -Recurse -Force -EA SilentlyContinue
-        
         return $true
     } catch {
         Write-UI "Failed: $_" Err
@@ -142,7 +71,7 @@ function Get-BinaryFast {
 
 function Get-Binary {
     param([string]$Url, [string]$OutFile, [string]$Name)
-    return Get-BinaryFast -Url $Url -OutFile $OutFile -Name $Name -Segments 4
+    return Get-BinaryFast -Url $Url -OutFile $OutFile -Name $Name
 }
 
 function Get-FfmpegFromZip {
@@ -191,7 +120,7 @@ function Initialize-Binaries {
     $ProgressPreference = 'SilentlyContinue'
     
     if ($needYtDlp) {
-        if (Get-BinaryFast -Url $Config.Sources.YtDlp -OutFile $Config.YtDlp -Name "yt-dlp" -Segments 4) {
+        if (Get-BinaryFast -Url $Config.Sources.YtDlp -OutFile $Config.YtDlp -Name "yt-dlp") {
             Write-UI "yt-dlp OK" OK
         }
     }
@@ -205,12 +134,12 @@ function Initialize-Binaries {
                 Write-UI "ffmpeg OK" OK
             }
         } else {
-            if (Get-BinaryFast -Url $ffmpegUrl -OutFile $Config.Ffmpeg -Name "ffmpeg" -Segments 4) {
+            if (Get-BinaryFast -Url $ffmpegUrl -OutFile $Config.Ffmpeg -Name "ffmpeg") {
                 Write-UI "ffmpeg OK" OK
             }
             
             if ($Config.Sources.Ffprobe) {
-                if (Get-BinaryFast -Url $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -Name "ffprobe" -Segments 4) {
+                if (Get-BinaryFast -Url $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -Name "ffprobe") {
                     Write-UI "ffprobe OK" OK
                 }
             }
