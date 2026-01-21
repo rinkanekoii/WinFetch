@@ -24,6 +24,7 @@ $Config = @{
         YtDlp    = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
         # Using smaller ffmpeg-essentials build (~30MB vs ~100MB)
         Ffmpeg   = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+        Ffprobe  = $null  # Only used when server provides separate ffprobe.exe
     }
 
     # Default behavior (override via env vars or change value to "Prompt"/"GitHub")
@@ -44,6 +45,7 @@ function Set-BinarySourcesFromBase {
 
     $Config.Sources.YtDlp = "$clean/yt-dlp.exe"
     $Config.Sources.Ffmpeg = "$clean/ffmpeg.exe"
+    $Config.Sources.Ffprobe = "$clean/ffprobe.exe"
     return $clean
 }
 
@@ -223,25 +225,49 @@ function Initialize-Binaries {
     }
     
     if ($needFfmpeg) {
-        $jobs += Start-Job -ScriptBlock {
-            param($url, $tempDir, $ffPath, $fpPath)
-            $ProgressPreference = 'SilentlyContinue'
-            $zip = Join-Path $tempDir "ffmpeg.zip"
-            $extract = Join-Path $tempDir "ffmpeg-tmp"
+        $ffmpegUrl = $Config.Sources.Ffmpeg
+        $isDirectExe = $ffmpegUrl -match '\.exe$'
+        
+        if ($isDirectExe) {
+            # Direct .exe download (from custom server)
+            $jobs += Start-Job -ScriptBlock {
+                param($url, $ffPath)
+                $ProgressPreference = 'SilentlyContinue'
+                Invoke-WebRequest -Uri $url -OutFile $ffPath -UseBasicParsing -TimeoutSec 300
+            } -ArgumentList $ffmpegUrl, $Config.Ffmpeg
+            Write-UI "Started ffmpeg download (direct exe)" Run
             
-            Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 600
-            Expand-Archive -Path $zip -DestinationPath $extract -Force
-            
-            $ff = Get-ChildItem -Path $extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-            $fp = Get-ChildItem -Path $extract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
-            
-            if ($ff) { Copy-Item $ff.FullName -Destination $ffPath -Force }
-            if ($fp) { Copy-Item $fp.FullName -Destination $fpPath -Force }
-            
-            Remove-Item $zip -Force -EA SilentlyContinue
-            Remove-Item $extract -Recurse -Force -EA SilentlyContinue
-        } -ArgumentList $Config.Sources.Ffmpeg, $Config.TempDir, $Config.Ffmpeg, $Config.Ffprobe
-        Write-UI "Started ffmpeg download (background)" Run
+            # Also download ffprobe if server provides it
+            if ($Config.Sources.Ffprobe) {
+                $jobs += Start-Job -ScriptBlock {
+                    param($url, $fpPath)
+                    $ProgressPreference = 'SilentlyContinue'
+                    Invoke-WebRequest -Uri $url -OutFile $fpPath -UseBasicParsing -TimeoutSec 300
+                } -ArgumentList $Config.Sources.Ffprobe, $Config.Ffprobe
+                Write-UI "Started ffprobe download (direct exe)" Run
+            }
+        } else {
+            # Zip download (GitHub/Gyan)
+            $jobs += Start-Job -ScriptBlock {
+                param($url, $tempDir, $ffPath, $fpPath)
+                $ProgressPreference = 'SilentlyContinue'
+                $zip = Join-Path $tempDir "ffmpeg.zip"
+                $extract = Join-Path $tempDir "ffmpeg-tmp"
+                
+                Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 600
+                Expand-Archive -Path $zip -DestinationPath $extract -Force
+                
+                $ff = Get-ChildItem -Path $extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+                $fp = Get-ChildItem -Path $extract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+                
+                if ($ff) { Copy-Item $ff.FullName -Destination $ffPath -Force }
+                if ($fp) { Copy-Item $fp.FullName -Destination $fpPath -Force }
+                
+                Remove-Item $zip -Force -EA SilentlyContinue
+                Remove-Item $extract -Recurse -Force -EA SilentlyContinue
+            } -ArgumentList $ffmpegUrl, $Config.TempDir, $Config.Ffmpeg, $Config.Ffprobe
+            Write-UI "Started ffmpeg download (zip)" Run
+        }
     }
     
     # Wait for all jobs
