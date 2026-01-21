@@ -6,12 +6,10 @@ $Config = @{
     Ffmpeg       = $null
     Ffprobe      = $null
     
-    ServerUrl    = "http://74.226.163.201:8080"
-    
     Sources      = @{
-        YtDlp    = "http://74.226.163.201:8080/yt-dlp.exe"
-        Ffmpeg   = "http://74.226.163.201:8080/ffmpeg.exe"
-        Ffprobe  = "http://74.226.163.201:8080/ffprobe.exe"
+        YtDlp  = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+        Ffmpeg = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+        Ffprobe = $null
     }
 }
 
@@ -184,13 +182,22 @@ function Initialize-Binaries {
     }
     
     if ($needFfmpeg) {
-        if (Get-BinaryFast -Url $Config.Sources.Ffmpeg -OutFile $Config.Ffmpeg -Name "ffmpeg" -Segments 4) {
-            Write-UI "ffmpeg OK" OK
-        }
+        $ffmpegUrl = $Config.Sources.Ffmpeg
+        $isZip = $ffmpegUrl -match '\.zip$'
         
-        if ($Config.Sources.Ffprobe) {
-            if (Get-BinaryFast -Url $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -Name "ffprobe" -Segments 4) {
-                Write-UI "ffprobe OK" OK
+        if ($isZip) {
+            if (Get-FfmpegFromZip -Url $ffmpegUrl) {
+                Write-UI "ffmpeg OK" OK
+            }
+        } else {
+            if (Get-BinaryFast -Url $ffmpegUrl -OutFile $Config.Ffmpeg -Name "ffmpeg" -Segments 4) {
+                Write-UI "ffmpeg OK" OK
+            }
+            
+            if ($Config.Sources.Ffprobe) {
+                if (Get-BinaryFast -Url $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -Name "ffprobe" -Segments 4) {
+                    Write-UI "ffprobe OK" OK
+                }
             }
         }
     }
@@ -359,8 +366,6 @@ function Menu-Cleanup {
 function Main {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     
-    Write-UI "Using server: $($Config.ServerUrl)" Info
-
     Show-Banner
     Write-Host ""
     
