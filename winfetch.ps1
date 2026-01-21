@@ -11,7 +11,7 @@
 # ============================================================================
 $Config = @{
     TempDir      = Join-Path $env:TEMP "winfetch"
-    OutputDir    = Join-Path ([Environment]::GetFolderPath("Desktop")) "Downloads"
+    OutputDir    = [Environment]::GetFolderPath("MyDocuments") -replace 'Documents$','Downloads'
     
     # Binary paths
     YtDlp        = $null  # Set in Init
@@ -254,12 +254,12 @@ function Start-Download {
     switch ($Mode) {
         'Video' {
             $fmt = switch ($Quality) {
-                "1080p" { "bestvideo[height<=1080]+bestaudio/best[height<=1080]" }
-                "720p"  { "bestvideo[height<=720]+bestaudio/best[height<=720]" }
-                "480p"  { "bestvideo[height<=480]+bestaudio/best[height<=480]" }
-                default { "bestvideo+bestaudio/best" }
+                "1080p" { "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]" }
+                "720p"  { "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]" }
+                "480p"  { "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]" }
+                default { "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best" }
             }
-            $args += @("-f", $fmt, "--merge-output-format", "mp4")
+            $args += @("-f", $fmt, "--merge-output-format", "mp4", "--embed-metadata")
         }
         'Audio' {
             $bitrate = if ($Quality -match '^\d+$') { $Quality } else { "320" }
