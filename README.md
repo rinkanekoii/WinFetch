@@ -27,6 +27,15 @@ Sources = @{
 }
 ```
 
+### Linux server
+
+```bash
+chmod +x server/setup-server-linux.sh
+./server/setup-server-linux.sh --port 8080 --bind 0.0.0.0
+
+# Then point clients to http://<server-ip>:8080
+```
+
 ## Features
 
 - **Parallel downloads** - yt-dlp + ffmpeg fetch simultaneously
