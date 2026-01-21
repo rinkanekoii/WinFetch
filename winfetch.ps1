@@ -21,8 +21,59 @@ $Config = @{
     # Download sources - Change to your server for faster delivery
     # Example: "http://192.168.1.100:8080/yt-dlp.exe"
     Sources      = @{
-        YtDlp  = "http://74.226.163.201:8080/yt-dlp.exe"
-        Ffmpeg = "http://74.226.163.201:8080/ffmpeg.exe"
+        YtDlp    = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+        # Using smaller ffmpeg-essentials build (~30MB vs ~100MB)
+        Ffmpeg   = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    }
+
+function Set-BinarySourcesFromBase {
+    param([string]$BaseUrl)
+
+    if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return $null }
+
+    $clean = $BaseUrl.Trim().TrimEnd('/')
+    if ($clean -notmatch '^[a-zA-Z]+://') {
+        $clean = "http://$clean"
+    }
+
+    $Config.Sources.YtDlp = "$clean/yt-dlp.exe"
+    $Config.Sources.Ffmpeg = "$clean/ffmpeg.exe"
+    return $clean
+}
+
+function Configure-BinarySources {
+    if ($env:WINFETCH_YTDLP -and $env:WINFETCH_FFMPEG) {
+        $Config.Sources.YtDlp = $env:WINFETCH_YTDLP
+        $Config.Sources.Ffmpeg = $env:WINFETCH_FFMPEG
+        Write-UI "Using binary URLs from environment variables" Info
+        return
+    }
+
+    if ($env:WINFETCH_SERVER) {
+        $base = Set-BinarySourcesFromBase -BaseUrl $env:WINFETCH_SERVER
+        if ($base) {
+            Write-UI "Using custom server: $base" Info
+        }
+        return
+    }
+
+    Write-Host ""
+    $choice = Read-Choice "Binary source" @(
+        "Official GitHub (default)",
+        "Custom server (LAN/public mirror)"
+    )
+
+    if ($choice -eq 2) {
+        do {
+            $base = Read-Host "Server base URL (e.g., http://74.226.163.201:8080)"
+        } while ([string]::IsNullOrWhiteSpace($base))
+
+        $clean = Set-BinarySourcesFromBase -BaseUrl $base
+        if ($clean) {
+            Write-UI "Using custom server: $clean" Info
+        }
+    } else {
+        Write-UI "Using official GitHub releases" Info
     }
 }
 
@@ -334,6 +385,8 @@ function Menu-Cleanup {
 function Main {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     
+    Configure-BinarySources
+
     Show-Banner
     Write-Host ""
     
