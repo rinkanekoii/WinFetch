@@ -59,21 +59,30 @@ function Get-BinaryFast {
     
     Write-UI "Downloading $Name..." Run
     
+    $simpleDownload = {
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 600
+    }
+
     try {
-        # Get file size
-        $req = [System.Net.HttpWebRequest]::Create($Url)
-        $req.Method = "HEAD"
-        $req.UserAgent = "Mozilla/5.0"
-        $req.AllowAutoRedirect = $true
-        $req.Timeout = 15000
-        $resp = $req.GetResponse()
-        $size = $resp.ContentLength
-        $supportsRange = $resp.Headers["Accept-Ranges"] -eq "bytes"
-        $resp.Close()
+        $supportsRange = $true
+        $size = 0
+        try {
+            $req = [System.Net.HttpWebRequest]::Create($Url)
+            $req.Method = "HEAD"
+            $req.UserAgent = "Mozilla/5.0"
+            $req.AllowAutoRedirect = $true
+            $req.Timeout = 15000
+            $resp = $req.GetResponse()
+            $size = $resp.ContentLength
+            $supportsRange = $resp.Headers["Accept-Ranges"] -eq "bytes"
+            $resp.Close()
+        } catch {
+            $supportsRange = $false
+        }
         
         if (-not $supportsRange -or $size -le 1MB) {
-            $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 300
+            & $simpleDownload
             return $true
         }
         
@@ -90,19 +99,25 @@ function Get-BinaryFast {
             
             Write-Host "`r[>] $Name segment $($i+1)/$Segments" -NoNewline
             
-            $dlReq = [System.Net.HttpWebRequest]::Create($Url)
-            $dlReq.Method = "GET"
-            $dlReq.UserAgent = "Mozilla/5.0"
-            $dlReq.AddRange($start, $end)
-            $dlReq.Timeout = 300000
-            $dlResp = $dlReq.GetResponse()
-            $stream = $dlResp.GetResponseStream()
-            $fs = [System.IO.File]::Create($segFile)
-            $buf = New-Object byte[] 65536
-            while (($rd = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
-                $fs.Write($buf, 0, $rd)
+            try {
+                $dlReq = [System.Net.HttpWebRequest]::Create($Url)
+                $dlReq.Method = "GET"
+                $dlReq.UserAgent = "Mozilla/5.0"
+                $dlReq.AddRange($start, $end)
+                $dlReq.Timeout = 300000
+                $dlResp = $dlReq.GetResponse()
+                $stream = $dlResp.GetResponseStream()
+                $fs = [System.IO.File]::Create($segFile)
+                $buf = New-Object byte[] 65536
+                while (($rd = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+                    $fs.Write($buf, 0, $rd)
+                }
+                $fs.Close(); $stream.Close(); $dlResp.Close()
+            } catch {
+                Remove-Item $tempDir -Recurse -Force -EA SilentlyContinue
+                & $simpleDownload
+                return $true
             }
-            $fs.Close(); $stream.Close(); $dlResp.Close()
         }
         Write-Host ""
         
