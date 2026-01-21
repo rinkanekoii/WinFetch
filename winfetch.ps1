@@ -289,7 +289,15 @@ function Initialize-Binaries {
 # ============================================================================
 function Invoke-YtDlp {
     param([string[]]$YtArgs)
-    
+
+    if (-not (Test-Path $Config.YtDlp) -or -not (Test-Path $Config.Ffmpeg)) {
+        Write-UI "Binaries missing, re-initializing..." Warn
+        if (-not (Initialize-Binaries)) {
+            Write-UI "Cannot run yt-dlp without binaries" Err
+            return $false
+        }
+    }
+
     $baseArgs = @("--ffmpeg-location", $Config.TempDir, "--no-mtime")
     & $Config.YtDlp @baseArgs @YtArgs
     return $LASTEXITCODE -eq 0
