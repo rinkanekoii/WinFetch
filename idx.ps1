@@ -5,9 +5,6 @@
 .DESCRIPTION
     A zero-footprint video/audio downloader using yt-dlp and ffmpeg.
     Runs entirely in memory with temp binaries. Leaves NO permanent changes.
-    
-.USAGE
-    irm https://raw.githubusercontent.com/<USER>/<REPO>/main/idx.ps1 | iex
 
 .SECURITY GUARANTEES
     - No PATH modification
