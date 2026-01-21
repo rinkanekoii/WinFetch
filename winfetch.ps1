@@ -60,10 +60,38 @@ function Get-BinaryFast {
     Write-UI "Downloading $Name..." Run
     
     try {
-        $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -TimeoutSec 600
+        $req = [System.Net.HttpWebRequest]::Create($Url)
+        $req.Method = "GET"
+        $req.UserAgent = "Mozilla/5.0"
+        $req.AllowAutoRedirect = $true
+        $req.Timeout = 600000
+        $resp = $req.GetResponse()
+        $total = $resp.ContentLength
+        $stream = $resp.GetResponseStream()
+        $fs = [System.IO.File]::Create($OutFile)
+        $buf = New-Object byte[] 65536
+        $downloaded = 0
+        $startTime = Get-Date
+        $lastUpdate = $startTime
+        
+        while (($rd = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+            $fs.Write($buf, 0, $rd)
+            $downloaded += $rd
+            $now = Get-Date
+            if (($now - $lastUpdate).TotalMilliseconds -ge 200) {
+                $elapsed = ($now - $startTime).TotalSeconds
+                $speed = if ($elapsed -gt 0) { $downloaded / $elapsed } else { 0 }
+                $pct = if ($total -gt 0) { [Math]::Round(($downloaded / $total) * 100) } else { 0 }
+                $speedStr = if ($speed -ge 1MB) { "{0:N1} MB/s" -f ($speed / 1MB) } elseif ($speed -ge 1KB) { "{0:N0} KB/s" -f ($speed / 1KB) } else { "{0:N0} B/s" -f $speed }
+                Write-Host ("`r[>] $Name $pct% | $speedStr".PadRight(50)) -NoNewline
+                $lastUpdate = $now
+            }
+        }
+        Write-Host ""
+        $fs.Close(); $stream.Close(); $resp.Close()
         return $true
     } catch {
+        Write-Host ""
         Write-UI "Failed: $_" Err
         return $false
     }
