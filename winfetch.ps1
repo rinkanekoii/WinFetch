@@ -21,9 +21,8 @@ $Config = @{
     # Download sources - Change to your server for faster delivery
     # Example: "http://192.168.1.100:8080/yt-dlp.exe"
     Sources      = @{
-        YtDlp    = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-        # Using smaller ffmpeg-essentials build (~30MB vs ~100MB)
-        Ffmpeg   = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+        YtDlp  = "http://74.226.163.201:8080/yt-dlp.exe"
+        Ffmpeg = "http://74.226.163.201:8080/ffmpeg.exe"
     }
 }
 
