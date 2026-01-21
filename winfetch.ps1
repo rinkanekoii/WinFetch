@@ -212,69 +212,69 @@ function Initialize-Binaries {
         return $true
     }
     
-    # Parallel download using jobs
-    $jobs = @()
+    $ProgressPreference = 'SilentlyContinue'
     
+    # Download yt-dlp
     if ($needYtDlp) {
-        $jobs += Start-Job -ScriptBlock {
-            param($url, $out)
-            $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -TimeoutSec 300
-        } -ArgumentList $Config.Sources.YtDlp, $Config.YtDlp
-        Write-UI "Started yt-dlp download (background)" Run
+        Write-UI "Downloading yt-dlp..." Run
+        try {
+            Invoke-WebRequest -Uri $Config.Sources.YtDlp -OutFile $Config.YtDlp -UseBasicParsing -TimeoutSec 120
+            Write-UI "yt-dlp OK" OK
+        } catch {
+            Write-UI "yt-dlp failed: $_" Err
+        }
     }
     
+    # Download ffmpeg
     if ($needFfmpeg) {
         $ffmpegUrl = $Config.Sources.Ffmpeg
         $isDirectExe = $ffmpegUrl -match '\.exe$'
         
         if ($isDirectExe) {
             # Direct .exe download (from custom server)
-            $jobs += Start-Job -ScriptBlock {
-                param($url, $ffPath)
-                $ProgressPreference = 'SilentlyContinue'
-                Invoke-WebRequest -Uri $url -OutFile $ffPath -UseBasicParsing -TimeoutSec 300
-            } -ArgumentList $ffmpegUrl, $Config.Ffmpeg
-            Write-UI "Started ffmpeg download (direct exe)" Run
+            Write-UI "Downloading ffmpeg..." Run
+            try {
+                Invoke-WebRequest -Uri $ffmpegUrl -OutFile $Config.Ffmpeg -UseBasicParsing -TimeoutSec 120
+                Write-UI "ffmpeg OK" OK
+            } catch {
+                Write-UI "ffmpeg failed: $_" Err
+            }
             
             # Also download ffprobe if server provides it
             if ($Config.Sources.Ffprobe) {
-                $jobs += Start-Job -ScriptBlock {
-                    param($url, $fpPath)
-                    $ProgressPreference = 'SilentlyContinue'
-                    Invoke-WebRequest -Uri $url -OutFile $fpPath -UseBasicParsing -TimeoutSec 300
-                } -ArgumentList $Config.Sources.Ffprobe, $Config.Ffprobe
-                Write-UI "Started ffprobe download (direct exe)" Run
+                Write-UI "Downloading ffprobe..." Run
+                try {
+                    Invoke-WebRequest -Uri $Config.Sources.Ffprobe -OutFile $Config.Ffprobe -UseBasicParsing -TimeoutSec 120
+                    Write-UI "ffprobe OK" OK
+                } catch {
+                    Write-UI "ffprobe failed: $_" Err
+                }
             }
         } else {
             # Zip download (GitHub/Gyan)
-            $jobs += Start-Job -ScriptBlock {
-                param($url, $tempDir, $ffPath, $fpPath)
-                $ProgressPreference = 'SilentlyContinue'
-                $zip = Join-Path $tempDir "ffmpeg.zip"
-                $extract = Join-Path $tempDir "ffmpeg-tmp"
+            Write-UI "Downloading ffmpeg (zip)..." Run
+            $zip = Join-Path $Config.TempDir "ffmpeg.zip"
+            $extract = Join-Path $Config.TempDir "ffmpeg-tmp"
+            
+            try {
+                Invoke-WebRequest -Uri $ffmpegUrl -OutFile $zip -UseBasicParsing -TimeoutSec 600
                 
-                Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -TimeoutSec 600
+                Write-UI "Extracting ffmpeg..." Run
                 Expand-Archive -Path $zip -DestinationPath $extract -Force
                 
                 $ff = Get-ChildItem -Path $extract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
                 $fp = Get-ChildItem -Path $extract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
                 
-                if ($ff) { Copy-Item $ff.FullName -Destination $ffPath -Force }
-                if ($fp) { Copy-Item $fp.FullName -Destination $fpPath -Force }
+                if ($ff) { Copy-Item $ff.FullName -Destination $Config.Ffmpeg -Force }
+                if ($fp) { Copy-Item $fp.FullName -Destination $Config.Ffprobe -Force }
                 
                 Remove-Item $zip -Force -EA SilentlyContinue
                 Remove-Item $extract -Recurse -Force -EA SilentlyContinue
-            } -ArgumentList $ffmpegUrl, $Config.TempDir, $Config.Ffmpeg, $Config.Ffprobe
-            Write-UI "Started ffmpeg download (zip)" Run
+                Write-UI "ffmpeg OK" OK
+            } catch {
+                Write-UI "ffmpeg failed: $_" Err
+            }
         }
-    }
-    
-    # Wait for all jobs
-    if ($jobs.Count -gt 0) {
-        Write-UI "Waiting for downloads..." Run
-        $jobs | Wait-Job | Out-Null
-        $jobs | Remove-Job
     }
     
     # Verify
@@ -288,10 +288,10 @@ function Initialize-Binaries {
 # YT-DLP WRAPPER
 # ============================================================================
 function Invoke-YtDlp {
-    param([string[]]$Args)
+    param([string[]]$YtArgs)
     
     $baseArgs = @("--ffmpeg-location", $Config.TempDir, "--no-mtime")
-    & $Config.YtDlp @baseArgs @Args
+    & $Config.YtDlp @baseArgs @YtArgs
     return $LASTEXITCODE -eq 0
 }
 
@@ -336,7 +336,7 @@ function Start-Download {
     $args += $Url
     
     Write-Host ""
-    if (Invoke-YtDlp -Args $args) {
+    if (Invoke-YtDlp -YtArgs $args) {
         Write-UI "Done! Saved to: $OutDir" OK
     } else {
         Write-UI "Download failed" Err
