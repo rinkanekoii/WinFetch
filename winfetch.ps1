@@ -26,6 +26,12 @@ $Config = @{
         Ffmpeg   = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
     }
 
+    # Default behavior (override via env vars or change value to "Prompt"/"GitHub")
+    DefaultBinarySource = "Server"      # Options: Server, GitHub, Prompt
+    DefaultServerUrl    = "http://74.226.163.201:8080"
+
+}
+
 function Set-BinarySourcesFromBase {
     param([string]$BaseUrl)
 
@@ -55,6 +61,23 @@ function Configure-BinarySources {
             Write-UI "Using custom server: $base" Info
         }
         return
+    }
+
+    $defaultMode = $Config.DefaultBinarySource
+
+    switch ($defaultMode) {
+        "Server" {
+            $clean = Set-BinarySourcesFromBase -BaseUrl $Config.DefaultServerUrl
+            if ($clean) {
+                Write-UI "Using default server: $clean" Info
+                return
+            }
+        }
+        "GitHub" {
+            Write-UI "Using official GitHub releases" Info
+            return
+        }
+        default { }
     }
 
     Write-Host ""
