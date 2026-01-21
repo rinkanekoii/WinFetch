@@ -30,9 +30,7 @@ function Show-Banner {
     Clear-Host
     Write-Host @"
 ╔═══════════════════════════════════════════════════════════════╗
-║                    WinFetch - Fast Downloader                 ║
-╠═══════════════════════════════════════════════════════════════╣
-║  Zero footprint • Parallel init • Server-ready                ║
+║                            WinFetch                           ║
 ╚═══════════════════════════════════════════════════════════════╝
 "@ -ForegroundColor Cyan
 }
